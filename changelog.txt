@@ -1,4 +1,9 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.2.2
+Date: 21. 10. 2026
+  Bugfixes:
+    - Factory inputs now follow the mined fluid or item, so mod fluids whose resource name differs from the fluid name are selectable. This includes Angel's gas wells and fissures.
+---------------------------------------------------------------------------------------------------
 Version: 0.2.1
 Date: 28. 03. 2025
   Bugfixes:

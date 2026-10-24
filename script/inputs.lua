@@ -5,6 +5,7 @@
 ]]
 
 local all_factory_data = require("static.all_factory_data")
+local factory_inputs = require("script.factory_inputs")
 local liteception_util = require("script.liteception_util")
 
 local inputs = {}
@@ -100,9 +101,7 @@ function inputs.get_item_input(direction, id)
     return nil
 end
 
-function inputs.set_fluid_input(direction, id, input)
-    local fluid_input = input:sub(1, input:find("-barrel") - 1)
-
+function inputs.set_fluid_input(direction, id, fluid_name)
     local indoor_surface = game.get_surface(storage.factory.surface_name)
     local outdoor_surface = game.get_surface(storage.factory.placed_on_surface_name)
 
@@ -127,7 +126,7 @@ function inputs.set_fluid_input(direction, id, input)
     }
 
     infinity_pipe.set_infinity_pipe_filter({
-        name = fluid_input,
+        name = fluid_name,
         percentage = 100,
     })
 
@@ -142,7 +141,7 @@ function inputs.change_input_amount(name, amount)
     if input and input.amount then
         input.amount = input.amount + amount
     else
-        storage.available_inputs[name] = {name = name, amount = 0}
+        storage.available_inputs[name] = { name = name, amount = math.max(amount, 0) }
     end
 end
 
@@ -189,30 +188,38 @@ function inputs.set_input(direction, id, value)
     inputs.remove_input(direction, id)
 
     if value ~= nil then
-        if value:find("barrel") == nil then
-            inputs.set_item_input(direction, id, value)
-            inputs.change_input_amount(value, -1)
+        local fluid_name = factory_inputs.fluid_name_from_input(value)
+        if fluid_name and prototypes.fluid[fluid_name] then
+            inputs.set_fluid_input(direction, id, fluid_name)
         else
-            inputs.set_fluid_input(direction, id, value)
-            inputs.change_input_amount(value, -1)
+            inputs.set_item_input(direction, id, value)
         end
+        inputs.change_input_amount(value, -1)
     end
 end
 
 function inputs.add_factory_input(prototype)
-    local resource_name
-    if prototype.resource_category:find("fluid") ~= nil then
-        resource_name = prototype.name .. "-barrel"
-    else
-        resource_name = prototype.name
-    end
-
-    -- Don't duplicate resources
-    if storage.available_inputs[resource_name] ~= nil then
+    local products = prototype.mineable_properties and prototype.mineable_properties.products
+    if products == nil then
         return
     end
 
-    storage.available_inputs[resource_name] = { name = resource_name, amount = 1 }
+    for _, product in pairs(products) do
+        local input_name = factory_inputs.item_name_for_product(product)
+        if input_name and storage.available_inputs[input_name] == nil and prototypes.item[input_name] then
+            storage.available_inputs[input_name] = { name = input_name, amount = 1 }
+        end
+    end
+end
+
+local function register_resource_inputs()
+    local resources = prototypes.get_entity_filtered{{
+        filter = "type",
+        type = "resource",
+    }}
+    for _, prototype in pairs(resources) do
+        inputs.add_factory_input(prototype)
+    end
 end
 
 local function replace_belts()
@@ -238,13 +245,7 @@ local function on_init()
     }
 
     -- Find and add all resources to available_inputs.
-    local resources = prototypes.get_entity_filtered{{
-        filter = "type",
-        type = "resource",
-    }}
-    for _, prototype in pairs(resources) do
-        inputs.add_factory_input(prototype)
-    end
+    register_resource_inputs()
 
     local belts = prototypes.get_entity_filtered{{ filter = "type", type = "transport-belt" }}
     local slowest_belt_name = liteception_util.get_slowest_craftable_belt_name(belts, prototypes.recipe, true)
@@ -260,6 +261,20 @@ local function on_init()
     for _, v in pairs(defines.direction) do
         storage.selected[v] = {}
     end
+end
+
+local function on_configuration_changed()
+    if storage.available_inputs == nil then
+        return
+    end
+
+    for name in pairs(storage.available_inputs) do
+        if prototypes.item[name] == nil then
+            storage.available_inputs[name] = nil
+        end
+    end
+
+    register_resource_inputs()
 end
 
 local function on_research_finished(event)
@@ -292,6 +307,7 @@ end
 
 inputs.lib = {
     on_init = on_init,
+    on_configuration_changed = on_configuration_changed,
     events = {
         [defines.events.on_research_finished] = on_research_finished,
     },
